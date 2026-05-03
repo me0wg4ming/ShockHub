@@ -15,7 +15,6 @@ Head to the [Releases](https://github.com/me0wg4ming/ShockHub/releases) page and
 **[⬇ Download ShockHubClient-Setup.exe](https://github.com/me0wg4ming/ShockHub/releases/download/v1/ShockHubClient-Setup.exe)**
 
 > ✅ **0/70 on VirusTotal** – The installer is unsigned but clean.
-
 > https://www.virustotal.com/gui/file/02bef12eb949214bb2d86f6e5a20758b5c9b99bf4b5ae7fe92bfaf734108e31d
 
 **Windows (installer)**
