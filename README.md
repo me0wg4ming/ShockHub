@@ -12,8 +12,9 @@ Built for VRChat with full OSC avatar integration via a local client app.
 
 Head to the [Releases](../../releases) page and download the latest `ShockGateClient-Setup.exe`.
 
-> ✅ **0/69 on VirusTotal** – The installer is unsigned but clean.
-> https://www.virustotal.com/gui/file/02bef12eb949214bb2d86f6e5a20758b5c9b99bf4b5ae7fe92bfaf734108e31d
+> ✅ **0/70 on VirusTotal** – The installer is unsigned but clean.
+
+> https://www.virustotal.com/gui/file/340467e04e0b270b9f83bbd2622cd5b901125ae12edac249afe991c4495d281b
 
 **Windows (installer)**
 
