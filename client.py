@@ -10,6 +10,9 @@ from datetime import datetime
 import os
 import hashlib as _hashlib
 import sys
+import glob
+import re as _re
+import urllib.request
 
 def _get_self_hash() -> str:
     try:
@@ -145,6 +148,80 @@ def log(msg: str):
         try: cb(line)
         except Exception: pass
 
+# ── VRChat OSCQuery Detection ─────────────────────────────────────────────────
+_last_oscquery_port = None
+
+def _get_vrchat_local_low() -> str | None:
+    """Returns the VRChat LocalLow path for Windows or Linux (Proton)."""
+    if os.name == "nt":
+        local_low = os.path.join(os.environ.get("LOCALAPPDATA", ""), "..", "LocalLow")
+        path = os.path.join(local_low, "VRChat", "VRChat")
+        if os.path.isdir(path):
+            return path
+    else:
+        home = os.path.expanduser("~")
+        candidates = [
+            os.path.join(home, ".steam", "debian-installation", "steamapps", "compatdata", "438100", "pfx", "drive_c", "users", "steamuser", "AppData", "LocalLow", "VRChat", "VRChat"),
+            os.path.join(home, ".steam", "steam", "steamapps", "compatdata", "438100", "pfx", "drive_c", "users", "steamuser", "AppData", "LocalLow", "VRChat", "VRChat"),
+            os.path.join(home, ".local", "share", "Steam", "steamapps", "compatdata", "438100", "pfx", "drive_c", "users", "steamuser", "AppData", "LocalLow", "VRChat", "VRChat"),
+        ]
+        for c in candidates:
+            if os.path.isdir(c):
+                return c
+    return None
+
+def _get_oscquery_port() -> int | None:
+    """Reads the OSCQuery port from the latest VRChat log."""
+    global _last_oscquery_port
+    log_dir = _get_vrchat_local_low()
+    if not log_dir:
+        return None
+    log_files = glob.glob(os.path.join(log_dir, "output_log_*.txt"))
+    if not log_files:
+        return None
+    latest_log = max(log_files, key=os.path.getmtime)
+    try:
+        with open(latest_log, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+        matches = _re.findall(r"Advertising Service .+ of type OSCQuery on (\d+)", content)
+        if matches:
+            port = int(matches[-1])
+            if port != _last_oscquery_port:
+                log(f"[*] OSCQuery port: {port}")
+                _last_oscquery_port = port
+            return port
+    except Exception as e:
+        log(f"[!] OSCQuery log error: {e}")
+    return None
+
+def get_vrchat_status() -> str:
+    """Returns one of three states:
+    - 'osc_on'     : VRChat running + OSC enabled
+    - 'osc_off'    : VRChat running but OSC disabled
+    - 'not_running': VRChat not running / not found
+    """
+    port = _get_oscquery_port()
+    if not port:
+        return "not_running"
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/avatar",
+            headers={"Host": "127.0.0.1"}
+        )
+        with urllib.request.urlopen(req, timeout=2) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        # OSC on: parameters have TYPE+VALUE; OSC off: CONTENTS are empty dicts
+        params = data.get("CONTENTS", {}).get("parameters", {}).get("CONTENTS", {})
+        for node in params.values():
+            if "TYPE" in node:
+                return "osc_on"
+        return "osc_off"
+    except Exception:
+        return "not_running"
+
+def vrchat_osc_reachable() -> bool:
+    return get_vrchat_status() == "osc_on"
+
 # ── OSC ───────────────────────────────────────────────────────────────────────
 def send_osc(op: int, intensity: int, duration: int,
              max_intensity: int = 100, max_duration: int = 15):
@@ -188,6 +265,16 @@ def send_osc_heartbeat():
         from pythonosc.udp_client import SimpleUDPClient
         client = SimpleUDPClient(OSC_HOST, OSC_PORT)
         client.send_message("/avatar/parameters/SHOCK/Collar", True)
+    except Exception:
+        pass
+
+def send_osc_collar_off():
+    """Send Collar=False to VRChat to signal client disconnect."""
+    try:
+        from pythonosc.udp_client import SimpleUDPClient
+        client = SimpleUDPClient(OSC_HOST, OSC_PORT)
+        client.send_message("/avatar/parameters/SHOCK/Collar", False)
+        log("[OSC] Collar → False (client offline)")
     except Exception:
         pass
 
@@ -387,13 +474,37 @@ async def ws_loop():
     global _user_token
     attempt = 0
 
-    # Heartbeat task
+    # Heartbeat task – only sends Collar=True when VRChat is reachable
     async def heartbeat():
         while True:
             await asyncio.sleep(5)
-            send_osc_heartbeat()
+            if vrchat_osc_reachable():
+                send_osc_heartbeat()
 
-    hb_task = asyncio.ensure_future(heartbeat())
+    # VRChat watchdog – updates GUI indicator every 5s
+    async def watch_vrchat():
+        last_status = None
+        while True:
+            await asyncio.sleep(5)
+            try:
+                status = get_vrchat_status()
+                if status != last_status:
+                    if _gui:
+                        _gui.set_vrchat_status(status)
+                    if status == "osc_on":
+                        log("[+] VRChat OSC connected")
+                    elif status == "osc_off":
+                        log("[!] VRChat running – OSC disabled (enable via Action Menu)")
+                    else:
+                        log("[!] VRChat not running")
+                    last_status = status
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                pass
+
+    hb_task  = asyncio.ensure_future(heartbeat())
+    vrc_task = asyncio.ensure_future(watch_vrchat())
 
     while True:
         attempt += 1
@@ -445,6 +556,7 @@ async def ws_loop():
                 log(f"[+] Connected! UserID: {msg.get('userId')}")
                 if _gui:
                     _gui.set_status(True, f"Connected (Secure)")
+                send_osc_heartbeat()  # immediate collar=True on connect
 
                 # Main message loop
                 async for raw in ws:
@@ -549,6 +661,18 @@ class ShockGateGUI:
         info_row("OSC →", self._var_osc)
         info_row("Version:", self._var_version)
 
+        # VRChat status row
+        vrc_row = tk.Frame(info_frame, bg="#0e0e12")
+        vrc_row.pack(fill="x", padx=18, pady=3)
+        tk.Label(vrc_row, text="VRChat:", fg="#4b4560", bg="#0e0e12",
+                 font=("Segoe UI", 9), width=12, anchor="w").pack(side="left")
+        self._vrc_dot = tk.Label(vrc_row, text="●", fg="#374151", bg="#0e0e12",
+                                 font=("Segoe UI", 9))
+        self._vrc_dot.pack(side="left", padx=(0, 4))
+        self._vrc_label = tk.Label(vrc_row, text="Checking...", fg="#4b4560", bg="#0e0e12",
+                                   font=("Segoe UI", 9), anchor="w")
+        self._vrc_label.pack(side="left")
+
         sep = tk.Frame(self.root, bg="#1e1825", height=1)
         sep.pack(fill="x")
 
@@ -589,7 +713,7 @@ class ShockGateGUI:
         self._sys_text = tk.Text(
             sys_frame, bg="#0a0a0c", fg="#4b4560",
             font=("Consolas", 8), relief="flat",
-            state="disabled", wrap="none", height=4,
+            state="disabled", wrap="word", height=7,
             highlightthickness=0,
         )
         self._sys_text.pack(fill="both", expand=True)
@@ -624,6 +748,19 @@ class ShockGateGUI:
             else:
                 self._dot.config(fg="#f87171" if "fail" in text.lower() or "error" in text.lower() else "#fb923c")
                 self._status_label.config(fg="#7c6f99", text=text or "Disconnected")
+        self.root.after(0, _update)
+
+    def set_vrchat_status(self, status: str):
+        def _update():
+            if status == "osc_on":
+                self._vrc_dot.config(fg="#4ade80")
+                self._vrc_label.config(fg="#4ade80", text="Connected")
+            elif status == "osc_off":
+                self._vrc_dot.config(fg="#fb923c")
+                self._vrc_label.config(fg="#fb923c", text="Running – OSC disabled")
+            else:
+                self._vrc_dot.config(fg="#f87171")
+                self._vrc_label.config(fg="#f87171", text="Not running")
         self.root.after(0, _update)
 
     def add_log(self, op_name: str, intensity: int, duration: int):
@@ -749,6 +886,7 @@ class ShockGateGUI:
             open(self._win_cfg, "w").write(self.root.geometry())
         except Exception:
             pass
+        send_osc_collar_off()
         os._exit(0)
 
     def run(self):
@@ -792,6 +930,8 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
+        send_osc_collar_off()
         log("Stopped.")
     except Exception as e:
+        send_osc_collar_off()
         log(f"[!] Fatal: {e}")

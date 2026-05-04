@@ -98,6 +98,25 @@ Tokens are shareable links tied to a specific shocker.
 
 ## Changelog
 
+### v1.03 (2026-05-04)
+
+**VRChat / OSC Detection**
+- Client now detects whether VRChat is running and whether OSC is enabled, using VRChat's OSCQuery HTTP endpoint
+- Three distinct states shown in the GUI info block: `Connected` (green), `Running – OSC disabled` (orange), `Not running` (red)
+- VRChat status is checked immediately on server connect and then every 5 seconds
+- Heartbeat (`SHOCK/Collar`) is only sent when VRChat OSC is actually reachable
+
+**Collar Signal**
+- `SHOCK/Collar = False` is now sent to VRChat when the client exits (X button, Ctrl+C, or fatal crash)
+- `SHOCK/Collar = True` is now sent immediately on successful server authentication, without waiting for the first 5-second heartbeat tick
+
+**GUI**
+- VRChat status row added to the info block (below Version), with colour-coded dot indicator
+- System log increased in height and now wraps long lines
+
+**Email (server)**
+- Registration and password reset emails now include a `text/plain` part alongside HTML, fixing SpamAssassin flags (`MIME_HTML_ONLY`, `MPART_ALT_DIFF`) and improving deliverability
+
 ### v1.00 (2026-05-02)
 - Initial release
 
