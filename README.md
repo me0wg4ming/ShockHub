@@ -14,7 +14,7 @@ Head to the [Releases](../../releases) page and download the latest `ShockGateCl
 
 > ✅ **0/70 on VirusTotal** – The installer is unsigned but clean.
 
-> https://www.virustotal.com/gui/file/c37d29eae4d7b2eab0f2b3543eff715e1241d43f7a14cca78f7dc0d25fb206d4
+> https://www.virustotal.com/gui/file/c93b6b47789a111f7c2814001e807be344b314a34d92fe7e7c5d6b8c7b938a0c
 
 **Windows (installer)**
 
