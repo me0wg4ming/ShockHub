@@ -38,7 +38,7 @@ ShockGate lets you share your PiShock with friends and partners via simple token
 The ShockGate Client runs locally on your PC and connects your avatar in VRChat via OSC, so your avatar reacts in real time when someone operates your shocker.
 
 ```
-Guest (token link) ──► ShockGate Server ──► PiShock API
+Guest (token link) ──► ShockGate Server ──► PiShock Broker (wss)
                               │
                         WebSocket (wss)
                               │
@@ -55,11 +55,20 @@ Guest (token link) ──► ShockGate Server ──► PiShock API
 - Each user has their own account, shockers and tokens — fully isolated
 - Token links with configurable limits: max intensity, max duration, use count, expiry
 - Single-user claim lock, activate-on-first-use timer
-- Pause a shocker or revoke a token — changes reflect instantly on the token page
-- PiShock credentials are validated against the API before being saved
-- Local client sends OSC parameters to VRChat and shows Discord Rich Presence
-- Auto-update: client updates itself silently on startup
+- Token pause/unpause — instantly block a token without deleting it
+- Multi-shocker tokens — one token can control multiple shockers simultaneously
+- Pause a shocker or revoke a token — changes reflect instantly on the token page via SSE
+- No share codes needed — ShockGate connects directly via the PiShock Broker WebSocket
+- Email verification required on registration
 - Password reset via email
+- Local client sends OSC parameters to VRChat and shows Discord Rich Presence
+- Auto-update: client silently updates itself on startup via SHA256 hash comparison
+- Rate limiting on login, register and password reset endpoints
+- IP ban system (exact, CIDR, wildcard) managed from the admin panel
+- Login history: last 5 IPs tracked per user
+- Per-token activity logs, persistent across server restarts
+- Admin SSE: admin panel receives live updates without polling
+- Security headers: CSP, HSTS, X-Frame-Options, Referrer-Policy
 
 ---
 
@@ -83,7 +92,7 @@ The client runs locally on your PC and bridges ShockGate with VRChat. It receive
 
 ## Token System
 
-Tokens are shareable links tied to a specific shocker.
+Tokens are shareable links tied to one or more shockers.
 
 | Setting | Description |
 |---|---|
@@ -93,26 +102,18 @@ Tokens are shareable links tied to a specific shocker.
 | Expires After | Token expires after N hours. Empty = never |
 | Single User | Only the first browser to open the token can use it |
 | Activate on First Use | Expiry timer starts on first use, not on creation |
+| Pause | Instantly block a token without deleting it |
 
 ---
 
 ## Changelog
 
 ### v1.04 (2026-05-06)
-- Switched to PiShock Broker WebSocket API (`wss://broker.pishock.com/v2`) — no share codes needed
-- Multi-shocker tokens: one token can now control multiple shockers simultaneously, all fired in a single broker payload
-- Token pause/unpause: tokens can be paused directly without touching the shocker
-- Per-token activity logs now stored on disk (data/logs/) — persistent across server restarts
-- Admin SSE endpoint (`/api/admin/stream`): admin panel receives live push updates instead of polling
-- IP ban system: admin can ban exact IPs, CIDR ranges and wildcards (e.g. `1.2.3.*`)
-- Login history: last 5 unique IPs tracked per user, visible in admin panel
-- Rate limiting on `/api/login`, `/api/register`, `/api/forgot-password`, `/api/admin/login`
-- Security headers on all responses: CSP with nonce, HSTS, X-Frame-Options, X-Content-Type-Options
-- Templates moved to `templates/` folder, served via `render_template` with nonce injection
-- Email verification on registration — unverified accounts deleted after 24 hours
-- Client version + hash check on WebSocket connect — server rejects outdated or modified clients
-- `websocket-client` library replaces `websockets` in the client for synchronous broker communication
-- Shocker globally unique constraint — a shocker can only be registered on one ShockGate account at a time
+- No share codes needed — ShockGate now connects directly via the PiShock Broker
+- Multi-shocker tokens: one token can now control multiple shockers at the same time
+- Token pause/unpause: pause a token instantly without deleting it
+- Email verification required on registration — unverified accounts are deleted after 24 hours
+- Shocker uniqueness: a shocker can only be registered on one ShockGate account at a time
 
 ### v1.03 (2026-05-04)
 
@@ -134,42 +135,20 @@ Tokens are shareable links tied to a specific shocker.
 - Registration and password reset emails now include a `text/plain` part alongside HTML, fixing SpamAssassin flags and improving deliverability
 
 ### v1.02 (2026-05-03)
-- Add Shocker modal redesigned as a two-step flow: credentials → shocker picker
-- Shockers are now fetched directly from the PiShock API (`GetUserDevices`) — no manual share code entry
-- Multi-select shocker picker: add multiple shockers in one step, each with its own name and share code
-- Share codes shown per shocker in a dropdown; manual code entry field always visible as fallback
-- Shocker names pre-filled from PiShock API, editable before saving
-- Shocker globally unique: a shocker already registered by another user is shown as unavailable
-- Token status badges added to dashboard: ACTIVE, EXPIRED, USED UP, NO SHOCKER
-- Refresh button label changed from icon to text
-- Dashboard rows switched from flexbox to CSS grid for aligned columns
+- Adding a shocker no longer requires manually entering share codes — ShockGate fetches your shockers directly from PiShock
+- Multiple shockers can be added in one step
+- Token status badges on the dashboard: ACTIVE, EXPIRED, USED UP, NO SHOCKER
+- Dashboard layout improvements
 
 ### v1.01 (2026-05-02)
-- Auto-update system: client checks for updates on startup via SHA256 hash comparison
-- URL obfuscation: server and WebSocket URLs XOR-encoded in client binary
-- Settings window no longer shows server URL (hardcoded, not user-configurable)
-- Discord Rich Presence via pypresence
-- Admin panel: Edit User modal (username, email, optional password reset)
-- Admin panel: online status dot per user (green/red), auto-refreshes every 10s
-- Admin panel: per-user activity log (last 100 operates)
-- Token page polls shocker status every 3s as fallback; SSE push on pause/unpause
-- Shocker validation on add uses direct Operate test beep instead of GetShareCodesByOwner
-- `is_invalid` column added to shockers table — marked on positive API confirmation only
-- FAQ section and safety disclaimer added to landing page
-- Rate limiting placeholder (full implementation in v1.04)
+- Client auto-updates itself on startup
+- Discord Rich Presence added
+- Token page updates shocker pause status in real time without page reload
+- Invalid shockers are detected and flagged automatically
+- FAQ section and safety disclaimer added to the landing page
 
 ### v1.00 (2026-05-02)
 - Initial release
-- Multi-user accounts with bcrypt passwords and 8-hour session tokens
-- PiShock credentials validated against API on shocker add
-- Token system with intensity/duration/use/expiry limits, all enforced server-side
-- Single-user claim lock with token-specific cookies
-- SSE push for lock state, shocker status, flash events
-- Per-user WebSocket client relay to local ShockGate Client
-- Client: tkinter GUI, OSC relay, auto-update stub, settings window
-- Admin panel: user list, ban/unban, delete, online status via polling
-- Password reset via SMTP email
-- SQLite WAL mode
 
 ---
 
